@@ -1,0 +1,31 @@
+data:
+  in_size: 2048
+  out_size: 224
+  crop_pct: 0.109375
+  mean_imgnet: [0.485, 0.456, 0.406] # from timm.data.constants
+  std_imgnet: [0.229, 0.224, 0.225] # from timm.data.constants
+  interpolate: 'bicubic'
+
+training:
+  batch_size: 16 
+  n_classes: 4
+  max_epch: 100 # for testing 
+  accum_iter: 1 # args
+  weight_decay: 0.05
+  layer_decay: 0.75
+  min_lr: 1e-6
+  lr: 1e-3
+  warmup_epochs: 10 
+  checkpoint: './RETFound_cfp_weights.pth'
+
+  logging:
+    log_dir: './train_logs/'
+    task: 'retfundfives_finetune'
+
+  checkpointing: 
+    out_dir: './mdl_ckpts/'
+    task: 'retfundfives_finetune_'
+
+testing:
+  checkpoint: 
+   
