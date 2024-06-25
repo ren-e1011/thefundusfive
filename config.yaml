@@ -40,7 +40,7 @@ training:
 
   checkpointing: 
     out_dir: './mdl_ckpts/'
-    task: 'retfundfives_'
+    task: 'retfundfives'
 
 testing:
   checkpoint: 

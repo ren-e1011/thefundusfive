@@ -36,7 +36,7 @@ import wandb
 # with slight mod from RETFound_MAE engine_finetune train_one_epoch 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer, 
-                    device: torch.device, epoch: int, loss_scaler, logger, max_norm: float = 0, 
+                    device: torch.device, epoch: int, logger, max_norm: float = 0, 
                     training_params = None, scheduler: torch.optim.lr_scheduler = None,
                     log_writer=None):
     model.train(True)
@@ -54,12 +54,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
 
-        # we use a per iteration (instead of per epoch) lr scheduler
-        # if data_iter_step % accum_iter == 0:
-        #     adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, training_params)
-
-
-        # with torch.autocast(device_type=device, dtype=torch.bfloat16): RuntimeError: User specified an unsupported autocast device_type 'cpu' - maybe 3.8 is not suited for cpu
         outputs = model(samples)
         loss = criterion(outputs, targets)
 
@@ -70,9 +64,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             sys.exit(1)
 
         # loss /= accum_iter
-        # loss_scaler(loss, optimizer, clip_grad=max_norm,
-        #             parameters=model.parameters(), create_graph=False,
-        #             update_grad=(data_iter_step + 1) % accum_iter == 0)
+
         
         loss.backward()
         optimizer.step()
@@ -91,7 +83,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         metric_logger.update(lr=max_lr)
 
-        loss_value_reduce = misc.all_reduce_mean(loss_value)
+        # loss_value_reduce = misc.all_reduce_mean(loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             """ We use epoch_1000x as the x-axis in tensorboard.
             This calibrates different curves when batch size changes.
@@ -110,28 +102,27 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 # with slight mod from RETFound_MAE util misc save_model
-def save_model(model, params = None, optimizer=None,loss_scaler=None,epoch=-1,k=-1):
-    output_dir = Path(f"{params.out_dir}/Fold_{k}") if params else '.'
-    task = params.task if params else ''
-    epoch_str = str(epoch)
-    fold = str(k)
+def save_model(model, data_params, training_params, optimizer=None,epoch=-1, k = -1, saveas=''):
+    
+    out_dir = training_params.checkpointing.out_dir
 
-    if loss_scaler is not None:
-        checkpoint_paths = [task+'_fold_'+fold+'_ckpt-best.pth']
-        checkpoint_paths = [f""]
-        for checkpoint_path in checkpoint_paths:
-            to_save = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch,
-                'scaler': loss_scaler.state_dict()
-            }
-            torch.save(to_save, checkpoint_path) # equivalent to save state dict
-    else:
-        print("Checkpointing wo loss")
-        client_state = {'epoch':epoch}
-        model.save_checkpoint(save_dir=output_dir, tag="checkpoint-%s" % epoch_str, client_state=client_state)
+    output_dir = Path(f"{out_dir}/Fold_{k}")
 
+    if not saveas:
+        task = f"{data_params.type}_{training_params.type}_{training_params.checkpointing.task}_fold_{k}"
+
+    checkpoint_path = task+'_ckpt-best.pth'
+    
+    to_save = {
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'epoch': epoch,
+    }
+
+    torch.save(to_save, checkpoint_path) # equivalent to save state dict
+    print(f"Epoch {epoch}, model saved to to {output_dir} as {task}")
+   
+# Train loop 
 def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5):
 
     batch_size = training_params.batch_size
@@ -151,12 +142,12 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5
 
         dataloader_train = DataLoader(
             dataset, sampler=train_sampler,
-            batch_size=batch_size, shuffle=True
+            batch_size=batch_size
         )
 
         dataloader_val = DataLoader(
             dataset, sampler=val_sampler,
-            batch_size=batch_size, shuffle=True
+            batch_size=batch_size
             )
     # =============================================================================
     # Model load 
@@ -201,18 +192,7 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5
     # Optimizer, Scheduler
     # =============================================================================
 
-        # TODO mod with scheduling
-        # build optimizer with layer-wise lr decay (lrd)
-        param_groups = lrd.param_groups_lrd(model, training_params.weight_decay,
-            no_weight_decay_list=model.no_weight_decay(),
-            layer_decay=training_params.layer_decay
-        )
-        # _lr = 1e-3 * 16/256
-        # optimizer = torch.optim.AdamW(param_groups,lr =  _lr)
         optimizer, scheduler = configure_optimizer(model=model,data_config=data_params, train_config=training_params)
-
-        # optimizer = torch.optim.AdamW(model.parameters()) # MOD
-        loss_scaler = NativeScaler(device) # black box scaling the lr 
 
     # =============================================================================
     # Learning criterion
@@ -240,7 +220,7 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5
     
         wblogger = wandb.init(
             project="fundus5",
-            name=training_params.logging.name,
+            name=f"{data_params.type}_{training_params.type}_{training_params.checkpointing.task}_fold_{fold}",
             notes=f"batch_size {training_params.batch_size}",
             config={"metric":{"goal":"maximize","name":"val_acc"}})
 
@@ -251,7 +231,7 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5
             
             train_stats = train_one_epoch(
                 model = model, criterion = criterion, data_loader=dataloader_train,
-                optimizer=optimizer, scheduler = scheduler, device=device, epoch=epoch, loss_scaler=loss_scaler,
+                optimizer=optimizer, scheduler = scheduler, device=device, epoch=epoch, 
                 log_writer=log_writer, training_params = training_params, logger = wblogger
             )
 
@@ -265,13 +245,11 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5
     # =============================================================================
             if max_auc<val_auc_roc:
                 max_auc = val_auc_roc
-                print(f"Saving model to {output_dir}")
+                
                 if output_dir:
                     # misc save model
-                    
                     save_model(
-                        model=model, params=training_params.checkpointing, optimizer=optimizer,
-                        loss_scaler=loss_scaler, epoch=epoch,k=fold)
+                        model=model, data_params = data_params, training_params = training_params, optimizer=optimizer, epoch=epoch, k = fold)
 
             if log_writer is not None:
                 log_writer.add_scalar('perf/val_acc1', val_stats['acc1'], epoch)

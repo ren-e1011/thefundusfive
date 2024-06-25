@@ -40,7 +40,7 @@ from dataset import DataSet
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE fine-tuning for image classification', add_help=False)
-    parser.add_argument('--eval',type=bool,default=True)
+    parser.add_argument('--eval',type=bool,default=False)
 
     parser.add_argument('--data_path',type=str, default='/Users/renee/Documents/Projects/FundUs/FIVES A Fundus Image Dataset for AI-based Vessel Segmentation/')
     
@@ -60,7 +60,7 @@ def main(args,config: DictConfig):
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     dataset = DataSet(data_path=data_path, train=Training, data_params = config.data,device=device)
-    batch_size = config.training.batch_size 
+
 
     if Training: 
 
