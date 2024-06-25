@@ -1,7 +1,56 @@
 import math
 import numpy as np
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import OneCycleLR
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, average_precision_score,multilabel_confusion_matrix
 
+from torch.nn import Softmax
+from torch import max 
+
+def accuracy(outputs, y):
+    preds, yhat = max(Softmax(dim=1)(outputs),1)
+    return accuracy_score(y,yhat)
+
+def configure_optimizer( model,data_config, train_config, optimizer = None):
+        lr = train_config.lr
+        weight_decay = train_config.weight_decay
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay) if not optimizer else optimizer
+
+        nsteps_train = int(data_config.nsamples * data_config.train_eval_split / train_config.batch_size)
+
+        scheduler_params = train_config.lr_scheduler
+        if not scheduler_params.use:
+            return optimizer
+
+        # GC
+        # total_steps = scheduler_params.total_steps
+        # assert total_steps is not None
+        # assert total_steps > 0
+
+        # Here we interpret the final lr as max_lr/final_div_factor.
+        # Note that Pytorch OneCycleLR interprets it as initial_lr/final_div_factor:
+        final_div_factor_pytorch = scheduler_params.final_div_factor / scheduler_params.div_factor
+        lr_scheduler = OneCycleLR(
+            optimizer=optimizer,
+            max_lr=lr,
+            steps_per_epoch= nsteps_train,
+            epochs= train_config.exp_epochs * 2,
+            div_factor=scheduler_params.div_factor,
+            final_div_factor=final_div_factor_pytorch,
+            # total_steps=total_steps, instead, calculate steps from expected 25 epch and steps per epch
+            # pct_start=scheduler_params.pct_start, instead take dfault percentage of cycle increasing lr 
+            cycle_momentum=False,
+            anneal_strategy='cos') # mod from linear
+        # lr_scheduler_config = {
+        #     "scheduler": lr_scheduler,
+        #     "interval": "step",
+        #     "frequency": 1,
+        #     "strict": True,
+        #     "name": 'learning_rate',
+        # }
+
+        # return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler_config}
+        return optimizer, lr_scheduler
 
 # slight mod from RETFound_MAE.uti
 def adjust_learning_rate(optimizer, epoch, lr_params):

@@ -44,6 +44,9 @@ def get_args_parser():
 
     parser.add_argument('--data_path',type=str, default='/Users/renee/Documents/Projects/FundUs/FIVES A Fundus Image Dataset for AI-based Vessel Segmentation/')
     
+    parser.add_argument('--datatype', type=str, default='Original', choices=['Original', 'Ground truth'])
+
+    parser.add_argument('--traintype', type=str, default='finetune', choices=['finetune', 'freeze'] )
 
     return parser
 
@@ -53,7 +56,8 @@ def main(args,config: DictConfig):
     Training = not args.eval 
 
     subdir = 'train' if Training else 'test'
-    data_path = os.path.join(args.data_path,subdir,'Ground truth/')
+    # data_path = os.path.join(args.data_path,subdir,'Ground truth/')
+    data_path = os.path.join(args.data_path,subdir,'Original/')
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     dataset = DataSet(data_path=data_path, train=Training, data_params = config.data,device=device)
@@ -61,7 +65,7 @@ def main(args,config: DictConfig):
 
     if Training: 
 
-        train_retfund_fives(dataset, training_params=config.training, device=device)
+        train_retfund_fives(dataset, data_params= config.data, training_params=config.training, device=device)
 
        
     else: 

@@ -14,7 +14,9 @@ class DataSet(Dataset):
         self.training = train
 
         self.path = data_path
-        self.sample_list = os.listdir(self.path)
+        # self.sample_list = os.listdir(self.path)
+        # Thumbs.db
+        self.sample_list = [file for file in os.listdir(data_path) if os.path.splitext(file)[1] == '.png'] 
 
         self.data_params = data_params
 

@@ -23,7 +23,7 @@ from utils import misc_measures
 
 # slight mods from RETFound_MAE engine_finetune evaluate
 @torch.no_grad()
-def evaluate(data_loader, model, device, out_dir, epoch, k='', mode='val', n_classes=4):
+def evaluate(data_loader, model, device, out_dir, epoch, logger, k='', mode='val', n_classes=4):
     task = out_dir 
     
     criterion = torch.nn.CrossEntropyLoss()
@@ -61,7 +61,7 @@ def evaluate(data_loader, model, device, out_dir, epoch, k='', mode='val', n_cla
         true_label_onehot_list.extend(true_label.cpu().detach().numpy())
         prediction_list.extend(prediction_softmax.cpu().detach().numpy())
 
-        acc1,_ = accuracy(output, target, topk=(1,2))
+        acc1,acc2 = accuracy(output, target, topk=(1,2)) # leave topk as 1 mod from topk=(1,2)
 
         batch_size = images.shape[0]
         metric_logger.update(loss=loss.item())
@@ -77,6 +77,8 @@ def evaluate(data_loader, model, device, out_dir, epoch, k='', mode='val', n_cla
             
     
     print('Sklearn Metrics - Acc: {:.4f} AUC-roc: {:.4f} AUC-pr: {:.4f} F1-score: {:.4f} MCC: {:.4f}'.format(acc, auc_roc, auc_pr, F1, mcc)) 
+    
+    
     results_path = task+'_metrics_{}.csv'.format(mode)
     with open(results_path,mode='a',newline='',encoding='utf8') as cfa:
         wf = csv.writer(cfa)
@@ -90,6 +92,8 @@ def evaluate(data_loader, model, device, out_dir, epoch, k='', mode='val', n_cla
         cm.plot(cmap=plt.cm.Blues,number_label=True,normalized=True,plot_lib="matplotlib")
         plt.savefig(task+'confusion_matrix_test.jpg',dpi=600,bbox_inches ='tight')
     
+    logger.log({'val_loss':loss,'val_accuracy':acc, 'F1-score':F1, 'AUC_ROC':auc_roc, 'AUC_Precision':auc_pr})
+
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()},auc_roc
 
 

@@ -5,22 +5,36 @@ data:
   mean_imgnet: [0.485, 0.456, 0.406] # from timm.data.constants
   std_imgnet: [0.229, 0.224, 0.225] # from timm.data.constants
   interpolate: 'bicubic'
+  nsamples: 600
+  train_eval_split: .80
 
 training:
-  batch_size: 16 
+  batch_size: 32 
   n_classes: 4
-  max_epch: 100 # for testing 
+  max_epch: 10 # for testing 
+  exp_epochs: 50
   accum_iter: 1 # args
   weight_decay: 0.05
   layer_decay: 0.75
   min_lr: 1e-6
-  lr: 1e-3
+  lr: 1e-4
   warmup_epochs: 10 
   checkpoint: './RETFound_cfp_weights.pth'
+  
+
+  lr_scheduler:
+    use: True
+    total_steps: ${..max_steps}
+    pct_start: 0.005
+    div_factor: 25 # init_lr = max_lr / div_factor
+    final_div_factor: 10000 # final_lr = max_lr / final_div_factor (this is different from Pytorch' OneCycleLR param)
+
 
   logging:
     log_dir: './train_logs/'
     task: 'retfundfives_finetune'
+    print_freq: 5
+    name: "OriginalDS"
 
   checkpointing: 
     out_dir: './mdl_ckpts/'

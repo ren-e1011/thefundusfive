@@ -9,11 +9,13 @@ from typing import Iterable, Optional
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from utils import configure_optimizer, accuracy 
 
 import RETFound_MAE.models_vit as models_vit 
 from RETFound_MAE.util.pos_embed import interpolate_pos_embed
 from timm.models.layers import trunc_normal_
-from timm.utils import accuracy
+
+
 
 import RETFound_MAE.util.lr_decay as lrd
 import RETFound_MAE.util.misc as misc
@@ -29,17 +31,19 @@ from math import isfinite
 
 from test import evaluate
 
+import wandb 
+
 # with slight mod from RETFound_MAE engine_finetune train_one_epoch 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
-                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    training_params = None, 
+                    data_loader: Iterable, optimizer: torch.optim.Optimizer, 
+                    device: torch.device, epoch: int, loss_scaler, logger, max_norm: float = 0, 
+                    training_params = None, scheduler: torch.optim.lr_scheduler = None,
                     log_writer=None):
     model.train(True)
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 20
+    print_freq = training_params.logging.print_freq 
 
     accum_iter = training_params.accum_iter if training_params is not None else 1
 
@@ -51,8 +55,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
 
         # we use a per iteration (instead of per epoch) lr scheduler
-        if data_iter_step % accum_iter == 0:
-            adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, training_params)
+        # if data_iter_step % accum_iter == 0:
+        #     adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, training_params)
 
 
         # with torch.autocast(device_type=device, dtype=torch.bfloat16): RuntimeError: User specified an unsupported autocast device_type 'cpu' - maybe 3.8 is not suited for cpu
@@ -65,10 +69,16 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             print("Loss is {}, stopping training".format(loss_value))
             sys.exit(1)
 
-        loss /= accum_iter
-        loss_scaler(loss, optimizer, clip_grad=max_norm,
-                    parameters=model.parameters(), create_graph=False,
-                    update_grad=(data_iter_step + 1) % accum_iter == 0)
+        # loss /= accum_iter
+        # loss_scaler(loss, optimizer, clip_grad=max_norm,
+        #             parameters=model.parameters(), create_graph=False,
+        #             update_grad=(data_iter_step + 1) % accum_iter == 0)
+        
+        loss.backward()
+        optimizer.step()
+        if scheduler:
+            scheduler.step()
+
         if (data_iter_step + 1) % accum_iter == 0:
             optimizer.zero_grad()
 
@@ -87,8 +97,11 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             This calibrates different curves when batch size changes.
             """
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
-            log_writer.add_scalar('loss', loss_value_reduce, epoch_1000x)
+            log_writer.add_scalar('loss', loss_value, epoch_1000x) #MOD
             log_writer.add_scalar('lr', max_lr, epoch_1000x)
+
+        acc = accuracy(outputs, targets)
+        logger.log({"train_acc":acc, "train_loss":loss,'learning_rate': max_lr})
 
     # gather the stats from all processes
     # metric_logger.synchronize_between_processes()
@@ -118,7 +131,7 @@ def save_model(model, params = None, optimizer=None,loss_scaler=None,epoch=-1,k=
         client_state = {'epoch':epoch}
         model.save_checkpoint(save_dir=output_dir, tag="checkpoint-%s" % epoch_str, client_state=client_state)
 
-def train_retfund_fives(dataset, training_params, device='cpu'):
+def train_retfund_fives(dataset, training_params, data_params, device='cpu'):
 
     batch_size = training_params.batch_size
     n_classes = training_params.n_classes
@@ -145,10 +158,13 @@ def train_retfund_fives(dataset, training_params, device='cpu'):
             dataset, sampler=val_sampler,
             batch_size=batch_size,
             )
+    # =============================================================================
+    # Model load 
+    # =============================================================================
+
     # "Load the model and weights" snippet @ https://github.com/rmaphoh/RETFound_MAE/tree/main
-    # call the model
         model = models_vit.__dict__['vit_large_patch16'](
-            img_size = 224, # config.data.input_size 
+            img_size = data_params.out_size, # config.data.input_size 
             num_classes=n_classes, # mod
             drop_path_rate=0.2,
         )
@@ -181,6 +197,9 @@ def train_retfund_fives(dataset, training_params, device='cpu'):
 
         # print("Model = %s" % str(model))
         print('number of params (M): %.2f' % (n_parameters / 1.e6))
+    # =============================================================================
+    # Optimizer, Scheduler
+    # =============================================================================
 
         # TODO mod with scheduling
         # build optimizer with layer-wise lr decay (lrd)
@@ -188,21 +207,22 @@ def train_retfund_fives(dataset, training_params, device='cpu'):
             no_weight_decay_list=model.no_weight_decay(),
             layer_decay=training_params.layer_decay
         )
-        optimizer = torch.optim.AdamW(param_groups)
-        loss_scaler = NativeScaler() # black box scaling the lr 
+        # _lr = 1e-3 * 16/256
+        # optimizer = torch.optim.AdamW(param_groups,lr =  _lr)
+        optimizer, scheduler = configure_optimizer(model=model,data_config=data_params, train_config=training_params)
+
+        # optimizer = torch.optim.AdamW(model.parameters()) # MOD
+        loss_scaler = NativeScaler(device) # black box scaling the lr 
+
+    # =============================================================================
+    # Learning criterion
+    # =============================================================================
 
         criterion = torch.nn.CrossEntropyLoss()
 
-        # from misc.load_model
-        # print("Resume checkpoint %s" % checkpoint)
-        # do i want to load the optimizer and scaler?
-        # if 'optimizer' in checkpoint and 'epoch' in checkpoint:
-        #     optimizer.load_state_dict(checkpoint['optimizer'])
-        #     start_epoch = checkpoint['epoch'] + 1
-        #     if 'scaler' in checkpoint:
-        #         loss_scaler.load_state_dict(checkpoint['scaler'])
-        #     print("With optim & sched!")
-        
+    # =============================================================================
+    # Checkpointing 
+    # =============================================================================    
         output_dir = training_params.checkpointing.out_dir
         log_dir = training_params.logging.log_dir + f"Fold_{fold}/"
         task = training_params.logging.task
@@ -213,20 +233,39 @@ def train_retfund_fives(dataset, training_params, device='cpu'):
         start_time = time.time()
         max_accuracy = 0.0
         max_auc = 0.0
+
+    # =============================================================================
+    # Logging
+    # =============================================================================
+    
+        wblogger = wandb.init(
+            project="fundus5",
+            name=training_params.logging.name,
+            notes=f"batch_size {training_params.batch_size}",
+            config={"metric":{"goal":"maximize","name":"val_acc"}})
+
+    # =============================================================================
+    # Training loop 
+    # =============================================================================
         for epoch in range(training_params.max_epch):
             
             train_stats = train_one_epoch(
                 model = model, criterion = criterion, data_loader=dataloader_train,
-                optimizer=optimizer, device=device, epoch=epoch, loss_scaler=loss_scaler,
-                log_writer=log_writer, training_params = training_params
+                optimizer=optimizer, scheduler = scheduler, device=device, epoch=epoch, loss_scaler=loss_scaler,
+                log_writer=log_writer, training_params = training_params, logger = wblogger
             )
 
+            # wblogger.log({"epoch_train_acc":train_stats[''], "epoch_train_loss":,})
 
-            val_stats,val_auc_roc = evaluate(dataloader_val, model, device,out_dir = log_dir,epoch = epoch, mode='val',n_classes=n_classes)
+            val_stats,val_auc_roc = evaluate(dataloader_val, model, device,out_dir = log_dir,epoch = epoch, mode='val',n_classes=n_classes, logger=wblogger)
             
+        
+    # =============================================================================
+    # Save model 
+    # =============================================================================
             if max_auc<val_auc_roc:
                 max_auc = val_auc_roc
-                
+                print(f"Saving model to {output_dir}")
                 if output_dir:
                     # misc save model
                     
@@ -247,7 +286,8 @@ def train_retfund_fives(dataset, training_params, device='cpu'):
                 log_writer.flush()
                 with open(os.path.join(output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                     f.write(json.dumps(log_stats) + "\n")
-
+        
+        wblogger.finish()
                     
         total_time = time.time() - start_time
         total_time_str = str(timedelta(seconds=int(total_time)))
