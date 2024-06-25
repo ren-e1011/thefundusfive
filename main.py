@@ -40,13 +40,13 @@ from dataset import DataSet
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE fine-tuning for image classification', add_help=False)
-    parser.add_argument('--eval',type=bool,default=False)
+    parser.add_argument('--eval',type=bool,default=True)
 
     parser.add_argument('--data_path',type=str, default='/Users/renee/Documents/Projects/FundUs/FIVES A Fundus Image Dataset for AI-based Vessel Segmentation/')
     
-    parser.add_argument('--datatype', type=str, default='Original', choices=['Original', 'Ground truth'])
+    # parser.add_argument('--datatype', type=str, default='Original', choices=['Original', 'Ground truth'])
 
-    parser.add_argument('--traintype', type=str, default='finetune', choices=['finetune', 'freeze'] )
+    # parser.add_argument('--traintype', type=str, default='finetune', choices=['finetune', 'freeze'] )
 
     return parser
 
@@ -56,8 +56,7 @@ def main(args,config: DictConfig):
     Training = not args.eval 
 
     subdir = 'train' if Training else 'test'
-    # data_path = os.path.join(args.data_path,subdir,'Ground truth/')
-    data_path = os.path.join(args.data_path,subdir,'Original/')
+    data_path = os.path.join(args.data_path,subdir,config.data.type)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     dataset = DataSet(data_path=data_path, train=Training, data_params = config.data,device=device)
@@ -65,11 +64,11 @@ def main(args,config: DictConfig):
 
     if Training: 
 
-        train_retfund_fives(dataset, data_params= config.data, training_params=config.training, device=device)
+        train_retfund_fives(dataset, data_params= config.data, training_params=config.training, device=device, k=config.training.folds)
 
        
     else: 
-        test_retfund_fives(dataset, batch_size)
+        test_retfund_fives(dataset, data_params= config.data, training_params=config.training, device=device, folds = config.training.folds)
     
 
 if __name__ == '__main__':

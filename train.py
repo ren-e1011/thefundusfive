@@ -118,6 +118,7 @@ def save_model(model, params = None, optimizer=None,loss_scaler=None,epoch=-1,k=
 
     if loss_scaler is not None:
         checkpoint_paths = [task+'_fold_'+fold+'_ckpt-best.pth']
+        checkpoint_paths = [f""]
         for checkpoint_path in checkpoint_paths:
             to_save = {
                 'model': model.state_dict(),
@@ -131,12 +132,11 @@ def save_model(model, params = None, optimizer=None,loss_scaler=None,epoch=-1,k=
         client_state = {'epoch':epoch}
         model.save_checkpoint(save_dir=output_dir, tag="checkpoint-%s" % epoch_str, client_state=client_state)
 
-def train_retfund_fives(dataset, training_params, data_params, device='cpu'):
+def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5):
 
     batch_size = training_params.batch_size
     n_classes = training_params.n_classes
 
-    k = 5
     kFold = KFold(n_splits=k,shuffle=True) 
 
     for fold, (train_ids, val_ids) in enumerate(kFold.split(dataset)):
@@ -151,12 +151,12 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu'):
 
         dataloader_train = DataLoader(
             dataset, sampler=train_sampler,
-            batch_size=batch_size,
+            batch_size=batch_size, shuffle=True
         )
 
         dataloader_val = DataLoader(
             dataset, sampler=val_sampler,
-            batch_size=batch_size,
+            batch_size=batch_size, shuffle=True
             )
     # =============================================================================
     # Model load 
@@ -224,7 +224,7 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu'):
     # Checkpointing 
     # =============================================================================    
         output_dir = training_params.checkpointing.out_dir
-        log_dir = training_params.logging.log_dir + f"Fold_{fold}/"
+        log_dir = os.path.join(training_params.logging.log_dir, f"Fold_{fold}/")
         task = training_params.logging.task
         os.makedirs(log_dir, exist_ok=True)
         log_writer = SummaryWriter(log_dir=log_dir+task)
@@ -257,7 +257,7 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu'):
 
             # wblogger.log({"epoch_train_acc":train_stats[''], "epoch_train_loss":,})
 
-            val_stats,val_auc_roc = evaluate(dataloader_val, model, device,out_dir = log_dir,epoch = epoch, mode='val',n_classes=n_classes, logger=wblogger)
+            val_stats,val_auc_roc = evaluate(dataloader_val, model, device,out_dir = log_dir,mode='val',n_classes=n_classes, logger=wblogger)
             
         
     # =============================================================================

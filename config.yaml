@@ -1,4 +1,5 @@
 data:
+  type: 'Original' # or Ground truth/
   in_size: 2048
   out_size: 224
   crop_pct: 0.109375
@@ -9,9 +10,10 @@ data:
   train_eval_split: .80
 
 training:
+  type: 'finetune'
   batch_size: 32 
   n_classes: 4
-  max_epch: 10 # for testing 
+  max_epch: 25 # for testing 
   exp_epochs: 50
   accum_iter: 1 # args
   weight_decay: 0.05
@@ -20,7 +22,7 @@ training:
   lr: 1e-4
   warmup_epochs: 10 
   checkpoint: './RETFound_cfp_weights.pth'
-  
+  folds: 5 # for testing 
 
   lr_scheduler:
     use: True
@@ -38,7 +40,7 @@ training:
 
   checkpointing: 
     out_dir: './mdl_ckpts/'
-    task: 'retfundfives_finetune_'
+    task: 'retfundfives_'
 
 testing:
   checkpoint: 
