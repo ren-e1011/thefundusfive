@@ -40,9 +40,9 @@ from dataset import DataSet
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE fine-tuning for image classification', add_help=False)
-    parser.add_argument('--eval',type=bool,default=False)
+    parser.add_argument('--eval',type=bool,default=True)
 
-    parser.add_argument('--data_path',type=str, default='/Users/renee/Documents/Projects/FundUs/FIVES A Fundus Image Dataset for AI-based Vessel Segmentation/')
+    parser.add_argument('--data_path',type=str, default='./Data/FIVES A Fundus Image Dataset for AI-based Vessel Segmentation/')
     
     # parser.add_argument('--datatype', type=str, default='Original', choices=['Original', 'Ground truth'])
 
@@ -68,7 +68,7 @@ def main(args,config: DictConfig):
 
        
     else: 
-        test_retfund_fives(dataset, data_params= config.data, training_params=config.training, device=device, folds = config.training.folds)
+        test_retfund_fives(dataset, data_params= config.data, testing_params=config.testing)
     
 
 if __name__ == '__main__':
@@ -80,5 +80,3 @@ if __name__ == '__main__':
 
     conf = OmegaConf.load('./config.yaml')
     main(args,conf)
-
-

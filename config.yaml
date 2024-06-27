@@ -34,7 +34,7 @@ training:
 
   logging:
     log_dir: './train_logs/'
-    task: 'retfundfives_finetune'
+    task: 'retfundfives_amd_finetune'
     print_freq: 5
     name: "OriginalDS"
 
@@ -43,5 +43,8 @@ training:
     task: 'retfundfives'
 
 testing:
-  checkpoint: 
+  n_classes: 2 
+  batch_size: 200  
+  task: 'Original_finetune_retfundfives_amd_finetune'
+  folds: 5
    

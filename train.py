@@ -1,4 +1,5 @@
 
+
 from pathlib import Path 
 import os, sys
 sys.path.append(str(Path.cwd().parent)) # for pythonpath 
@@ -109,7 +110,7 @@ def save_model(model, data_params, training_params, optimizer=None,epoch=-1, k =
     output_dir = Path(f"{out_dir}/Fold_{k}")
 
     if not saveas:
-        task = f"{data_params.type}_{training_params.type}_{training_params.checkpointing.task}_fold_{k}"
+        task = f"{data_params.type}_{training_params.type}_{training_params.logging.task}_fold_{k}"
 
     checkpoint_path = task+'_ckpt-best.pth'
     
@@ -236,8 +237,7 @@ def train_retfund_fives(dataset, training_params, data_params, device='cpu', k=5
             )
 
             # wblogger.log({"epoch_train_acc":train_stats[''], "epoch_train_loss":,})
-
-            val_stats,val_auc_roc = evaluate(dataloader_val, model, device,out_dir = log_dir,mode='val',n_classes=n_classes, logger=wblogger)
+            val_stats,val_auc_roc = evaluate(dataloader_val, model, mode='val',n_classes=n_classes, logger=wblogger)
             
         
     # =============================================================================
